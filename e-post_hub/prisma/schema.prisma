@@ -51,6 +51,7 @@ model User {
   admin         Admin?
   events        Event[] // Relation: One user can have many events
   questions     Question[]
+  comments      Comment[]
 }
 //one-to-one relationship
 //? means optional
@@ -89,6 +90,7 @@ model Event {
   flyer        String?  // Flyer file (URL or storage path)
   status       String   @default("PENDING") // Status of event: APPROVED, DENIED, PENDING
   interested   Int     @default(0) // New field for storing interest count
+  comments     Comment[]
 }
 
 model Question {
@@ -102,6 +104,21 @@ model Question {
   createdBy   User?    @relation(fields: [userId], references: [id])
 }
 
+model Comment {
+  id          String   @id @default(cuid())
+  content     String   // The comment text
+  createdAt   DateTime @default(now()) // When the comment was created
+  updatedAt   DateTime @updatedAt // When the comment was last updated
+  eventId     String   // Foreign key to associate with an event
+  event       Event    @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  userId      String   // Foreign key to associate with the user who commented
+  createdBy   User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  // Self-referencing relationship for replies
+  parentId    String?  // Foreign key to link a comment
+  parent      Comment? @relation("CommentReplies", fields: [parentId], references: [id], onDelete: Cascade)
+  replies     Comment[] @relation("CommentReplies")
+}
 
 
 //dont forget npx prisma migrate dev --name ...

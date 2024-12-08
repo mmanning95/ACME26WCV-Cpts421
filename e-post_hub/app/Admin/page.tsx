@@ -72,7 +72,7 @@ export default function Adminpage() {
         if (response.ok) {
           const data = await response.json();
           setEvents(data.events);
-          setFilteredEvents(data.events); // Initially, show all events
+          setFilteredEvents(data.events);
         } else {
           setMessage("Failed to fetch events.");
         }
@@ -84,7 +84,6 @@ export default function Adminpage() {
   }, []);
 
   const handleDateClick = (date: string) => {
-    // Filter events based on the selected date
     const eventsForDate = events.filter((event) => {
       const startDate = event.startDate
         ? new Date(event.startDate).toISOString().split("T")[0]
@@ -98,7 +97,7 @@ export default function Adminpage() {
   };
 
   const resetFilter = () => {
-    setFilteredEvents(events); // Reset to show all events
+    setFilteredEvents(events);
   };
 
   const handleInterest = async (eventId: string) => {
@@ -106,14 +105,12 @@ export default function Adminpage() {
       localStorage.getItem("interestedEvents") || "[]"
     ) as string[];
 
-    // Check if user has already expressed interest
     if (interestedEvents.includes(eventId)) {
       setMessage("You have already expressed interest in this event.");
       setTimeout(() => setMessage(null), 3000);
       return;
     }
 
-    // Add event to localStorage
     localStorage.setItem(
       "interestedEvents",
       JSON.stringify([...interestedEvents, eventId])
@@ -152,7 +149,6 @@ export default function Adminpage() {
     setTimeout(() => setMessage(null), 3000);
   };
 
-  
   const handleDelete = async () => {
     if (!selectedEventId) return;
 
@@ -193,12 +189,10 @@ export default function Adminpage() {
 
   return (
     <div className="flex">
-      {/* Calendar Sidebar */}
       <div className="calendar-sidebar w-1/4 p-4">
         <EventCalendar events={events} onDateClick={handleDateClick} />
       </div>
 
-      {/* Main Content */}
       <div className="content w-3/4 p-4">
         <div className="text-center mb-10">
           <h3 className="text-3xl font-bold">Welcome, {adminName || "Admin"}!</h3>
@@ -212,7 +206,6 @@ export default function Adminpage() {
           )}
         </div>
 
-        {/* Button Container */}
         <div className="text-center mb-10 flex justify-center gap-4">
           <Button
             as={Link}
@@ -236,7 +229,6 @@ export default function Adminpage() {
           </Button>
         </div>
 
-        {/* Display Events for Selected Date */}
         <div className="mt-10">
           <h4 className="text-2xl mb-4 text-center">Events:</h4>
           {filteredEvents.length === 0 ? (
@@ -257,12 +249,14 @@ export default function Adminpage() {
                     </p>
                     {event.startDate && (
                       <p className="text-gray-600">
-                        Start Date: {new Date(event.startDate).toLocaleDateString()}
+                        Start Date:{" "}
+                        {new Date(event.startDate).toLocaleDateString()}
                       </p>
                     )}
                     {event.endDate && (
                       <p className="text-gray-600">
-                        End Date: {new Date(event.endDate).toLocaleDateString()}
+                        End Date:{" "}
+                        {new Date(event.endDate).toLocaleDateString()}
                       </p>
                     )}
                     <p className="text-gray-600">Interested: {event.interested}</p>
@@ -295,7 +289,6 @@ export default function Adminpage() {
           )}
         </div>
 
-        {/* Modal for Confirming Delete */}
         {modalOpen && (
           <div className="modal fixed top-0 left-0 w-full h-full flex items-center justify-center bg-black bg-opacity-50">
             <div className="modal-content bg-white p-6 rounded-lg shadow-lg">
