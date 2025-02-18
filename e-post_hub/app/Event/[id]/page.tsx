@@ -514,12 +514,12 @@ export default function EventDetailsPage() {
               <p className="text-gray-600">
                 <strong>Interested:</strong> {event.interested}
               </p>
+              <Button onClick={handleShareEvent}>Share</Button>
 
               {/* If user can edit, show button */}
               {isLoggedIn && canEditEvent() && (
                 <div className="mt-4 flex gap-2">
                   <Button onClick={handleEditToggle}>Edit Event</Button>
-                  <Button onClick={handleShareEvent}>Share</Button>
                 </div>
               )}
             </>
