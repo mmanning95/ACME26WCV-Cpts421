@@ -141,9 +141,24 @@ export default function EventDetailsPage() {
     setEditType(event.type || "");
     setEditAddress(event.address || "");
     setEditWebsite(event.website || "");
-    setEditStartDate(event.startDate || "");
-    setEditEndDate(event.endDate || "");
+
+    if (event.startDate) {
+      const d = new Date(event.startDate);
+      d.setDate(d.getDate() -1);
+      setEditStartDate(d.toISOString().split("T")[0]);
+    } else {
+      setEditStartDate("");
+    }
+
+    if (event.endDate) {
+      const d = new Date(event.endDate);
+      d.setDate(d.getDate()-1);
+      setEditEndDate(d.toISOString().split("T")[0]);
+    } else {
+      setEditEndDate("");
+    }
   };
+  
 
   // [Inline Editing] Cancel
   const handleCancelEdit = () => {
@@ -160,14 +175,27 @@ export default function EventDetailsPage() {
       return;
     }
 
+    // Parse user-chosen date, add 1 day, and convert to "YYYY-MM-DD"
+    function parseAndAddOneDay(dateStr: string) {
+      if (!dateStr) return "";
+      const d = new Date(dateStr);
+      d.setDate(d.getDate() + 1);
+      return d.toISOString().split("T")[0]; 
+      }
+
+      // Convert the user’s editStartDate and editEndDate
+      const finalStartDate = parseAndAddOneDay(editStartDate);
+      const finalEndDate   = parseAndAddOneDay(editEndDate);
+
+
     const updatedEvent = {
       title: editTitle,
       description: editDescription,
       type: editType,
       address: editAddress,
       website: editWebsite,
-      startDate: editStartDate,
-      endDate: editEndDate,
+      startDate: finalStartDate,
+      endDate: finalEndDate,
     };
 
     try {
@@ -228,7 +256,7 @@ export default function EventDetailsPage() {
     }
   };
 
-  // COMMENT LOGIC (Unchanged)
+  // COMMENT LOGIC 
   const handleEditComment = async (commentId: string) => {
     if (!editContent.trim()) {
       setMessage("Comment cannot be empty.");
@@ -606,10 +634,14 @@ export default function EventDetailsPage() {
 
               {/* Save/Cancel */}
               <div className="flex gap-4">
-                <Button onClick={handleSaveEvent} color="primary">
+                <Button onClick={handleSaveEvent}
+                className="bg-gradient-to-r from-[#f7960d] to-[#f95d09] border border-black"
+                >
                   Save
                 </Button>
-                <Button onClick={handleCancelEdit} color="secondary">
+                <Button onClick={handleCancelEdit} 
+                  className="bg-gradient-to-r from-[#f7584c] to-[#ff0505] border border-black"
+                >
                   Cancel
                 </Button>
               </div>
