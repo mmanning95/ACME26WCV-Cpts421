@@ -21,11 +21,11 @@ export default function BottomBar() {
             <h3 className="text-lg font-bold">Contact Us</h3>
             <p className="text-sm">
               Email:{" "}
-              <a href="mailto: ____" className="underline">
-                ____
+              <a href="mailto:BeckyBuri@whitmancounty.gov " className="underline">
+              BeckyBuri@whitmancounty.gov
               </a>
             </p>
-            <p className="text-sm">Phone: +1 (111) 111-1111</p>
+            <p className="text-sm">Phone: +1 (509) 397-5246</p>
           </div>
         </div>
 

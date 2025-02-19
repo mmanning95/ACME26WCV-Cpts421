@@ -1,8 +1,10 @@
 "use client";
 
 import React, { useEffect, useState } from "react";
-import { Card, CardBody, CardHeader, Button, Textarea } from "@nextui-org/react";
+import { Card, CardBody, CardHeader, Button, Textarea, Input } from "@nextui-org/react";
 import Link from "next/link";
+import { usePlacesWidget } from "react-google-autocomplete";
+import { useForm } from "react-hook-form";
 
 type Event = {
   id: string;
@@ -69,6 +71,29 @@ export default function EventDetailsPage() {
   const [editWebsite, setEditWebsite] = useState("");
   const [editStartDate, setEditStartDate] = useState("");
   const [editEndDate, setEditEndDate] = useState("");
+
+    // Address State
+    const [address, setAddress] = useState("");
+    const { setValue } = useForm();
+  
+    const { ref } = usePlacesWidget<HTMLInputElement>({
+      apiKey: process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY!,
+      onPlaceSelected: (place) => {
+        if (place.formatted_address) {
+          setAddress(place.formatted_address);
+          setValue("address", place.formatted_address);
+        }
+      },
+      options: {
+        types: ["geocode"],
+        componentRestrictions: { country: "us" },
+      },
+    });
+
+    useEffect(() => {
+      console.log("Input Ref:", ref);
+    }, [ref]);
+    
 
   // 1) Get ID from URL, decode token
   useEffect(() => {
@@ -460,6 +485,7 @@ export default function EventDetailsPage() {
     return <div>Loading...</div>;
   }
 
+  console.log(process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY)
   return (
     <div className="flex flex-col items-center justify-center min-h-screen bg-gray-50">
       {message && (
@@ -591,13 +617,15 @@ export default function EventDetailsPage() {
 
               {/* Address */}
               <div className="mb-2">
-                <label className="text-sm font-semibold">Address:</label>
-                <input
-                  type="text"
-                  className="border rounded w-full p-2"
-                  value={editAddress}
-                  onChange={(e) => setEditAddress(e.target.value)}
-                />
+              <Input
+              label="Event Address"
+              ref={ref as unknown as React.RefObject<HTMLInputElement>}
+              variant="bordered"
+              placeholder="Enter event location"
+              value={address}
+              onChange={(e) => setAddress(e.target.value)}
+              //errorMessage={errors.address?.message}
+            />
               </div>
 
               <div className="flex gap-2 mb-2">
