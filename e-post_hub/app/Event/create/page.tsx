@@ -47,6 +47,10 @@ export default function CreateEventPage() {
     }
   }, []);
 
+    useEffect(() => {
+      console.log("Google Places Loaded?", !!window.google);
+    }, []);
+
   return (
     <div
       className="flex items-center justify-center"

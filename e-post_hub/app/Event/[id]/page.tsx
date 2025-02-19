@@ -1,10 +1,12 @@
 "use client";
 
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { Card, CardBody, CardHeader, Button, Textarea, Input } from "@nextui-org/react";
 import Link from "next/link";
 import { usePlacesWidget } from "react-google-autocomplete";
 import { useForm } from "react-hook-form";
+import { useLoadScript, Libraries } from "@react-google-maps/api";
+
 
 type Event = {
   id: string;
@@ -18,13 +20,10 @@ type Event = {
   status: string;
   startDate?: string;
   endDate?: string;
-  // Removed startTime/endTime from display
-  // startTime?: string;
-  // endTime?: string;
   website?: string;
   flyer?: string;
-  type?: string;    // <--- We now display/edit this
-  address?: string; // <--- We now display/edit this
+  type?: string;   
+  address?: string; 
 };
 
 type Comment = {
@@ -39,9 +38,17 @@ type Comment = {
   replies: Comment[]; // Nested replies
 };
 
+const libraries: Libraries = ["places"];
+const GOOGLE_API_KEY = process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY!;
+
 export default function EventDetailsPage() {
   const [eventId, setEventId] = useState<string | null>(null);
   const [event, setEvent] = useState<Event | null>(null);
+
+  const { isLoaded, loadError } = useLoadScript({
+    googleMapsApiKey: GOOGLE_API_KEY,
+    libraries, // Keep libraries as a static array
+  });
 
   // Commenting
   const [comments, setComments] = useState<Comment[]>([]);
@@ -73,15 +80,22 @@ export default function EventDetailsPage() {
   const [editEndDate, setEditEndDate] = useState("");
 
     // Address State
+    const addressInputRef = useRef<HTMLInputElement>(null);
     const [address, setAddress] = useState("");
     const { setValue } = useForm();
-  
-    const { ref } = usePlacesWidget<HTMLInputElement>({
-      apiKey: process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY!,
+    const inputRef = useRef<HTMLInputElement | null>(null);    
+    const [isRefSet, setIsRefSet] = useState(false);
+
+    useEffect(() => {
+      console.log("Google Places Loaded?", isLoaded);
+    }, [isLoaded]);
+    
+
+    const { ref: placesRef } = usePlacesWidget<HTMLInputElement>({
+      apiKey: GOOGLE_API_KEY,
       onPlaceSelected: (place) => {
         if (place.formatted_address) {
           setAddress(place.formatted_address);
-          setValue("address", place.formatted_address);
         }
       },
       options: {
@@ -89,11 +103,19 @@ export default function EventDetailsPage() {
         componentRestrictions: { country: "us" },
       },
     });
-
-    useEffect(() => {
-      console.log("Input Ref:", ref);
-    }, [ref]);
     
+    useEffect(() => {
+      if (inputRef.current) {
+        console.log("Google Places is now attached:", inputRef.current);
+      }
+    }, [inputRef.current]);
+    
+    useEffect(() => {
+      if (inputRef.current) {
+        console.log("Google Places is now attached:", inputRef.current);
+        setIsRefSet(true); 
+      }
+    }, [inputRef.current, isLoaded]);
 
   // 1) Get ID from URL, decode token
   useEffect(() => {
@@ -485,7 +507,6 @@ export default function EventDetailsPage() {
     return <div>Loading...</div>;
   }
 
-  console.log(process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY)
   return (
     <div className="flex flex-col items-center justify-center min-h-screen bg-gray-50">
       {message && (
@@ -493,7 +514,12 @@ export default function EventDetailsPage() {
           {message}
         </div>
       )}
-
+{!isLoaded ? (
+        <div>Loading Google Maps...</div>
+      ) : loadError ? (
+        <div>Error loading Google Maps API</div>
+      ) : (
+        <>
       {/* Event Card */}
       <Card className="w-3/4 mb-10">
         <CardHeader className="flex flex-col items-center justify-center">
@@ -580,6 +606,7 @@ export default function EventDetailsPage() {
           ) : (
             <>
               {/* Inline Edit Mode */}
+              <label className="text-sm font-semibold">Title:</label>
               <input
                 className="border rounded w-full p-2 text-xl font-semibold mb-2"
                 value={editTitle}
@@ -597,6 +624,7 @@ export default function EventDetailsPage() {
                 </a>
               )}
 
+              <label className="text-sm font-semibold">Description:</label>
               <Textarea
                 placeholder="Description"
                 value={editDescription}
@@ -605,8 +633,8 @@ export default function EventDetailsPage() {
               />
 
               {/* Type */}
-              <div className="mb-2">
-                <label className="text-sm font-semibold">Type:</label>
+              <div className="mb-2 rounded w-3/6">
+                <label className="text-sm font-semibold">Event Type:</label>
                 <input
                   type="text"
                   className="border rounded w-full p-2"
@@ -616,19 +644,20 @@ export default function EventDetailsPage() {
               </div>
 
               {/* Address */}
-              <div className="mb-2">
-              <Input
-              label="Event Address"
-              ref={ref as unknown as React.RefObject<HTMLInputElement>}
-              variant="bordered"
-              placeholder="Enter event location"
-              value={address}
-              onChange={(e) => setAddress(e.target.value)}
-              //errorMessage={errors.address?.message}
-            />
+              <div className="mb-2 rounded w-3/6">
+              <label className="text-sm font-semibold">Event Address:</label>
+              <input
+                type="text"
+                className="border rounded w-full p-2"
+                ref={inputRef}
+                placeholder="Enter event location"
+                value={address}
+                onChange={(e) => setAddress(e.target.value)}
+                disabled={!editingEvent}
+              />
               </div>
 
-              <div className="flex gap-2 mb-2">
+              <div className="flex gap-20 mb-2">
                 <div>
                   <label className="text-sm font-semibold">Start Date:</label>
                   <input
@@ -650,7 +679,7 @@ export default function EventDetailsPage() {
               </div>
 
               {/* Website */}
-              <div className="mb-4">
+              <div className="mb-4 w-2/4">
                 <label className="text-sm font-semibold">Website:</label>
                 <input
                   type="text"
@@ -678,6 +707,8 @@ export default function EventDetailsPage() {
         </CardHeader>
         <CardBody>{/* Optional extra event body content */}</CardBody>
       </Card>
+      </>
+      )}
 
       {/* Comments Card */}
       <Card className="w-3/4">
