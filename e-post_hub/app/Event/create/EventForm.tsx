@@ -33,14 +33,16 @@ const predefinedEventType = ["Workshop", "Seminar", "Meeting", "Fundraiser"];
 
 interface CreateEventForm {
   title: string;
-  startDate: string;
-  endDate: string;
-  startTime?: string;
-  endTime?: string;
   description?: string;
   type: string;
   website?: string;
   address?: string;
+}
+
+interface Occurrence {
+  date: string;       // "YYYY-MM-DD"
+  startTime: string;  // "HH:mm"
+  endTime: string;    // "HH:mm"
 }
 
 export default function EventForm() {
@@ -61,6 +63,12 @@ export default function EventForm() {
   const [file, setFile] = useState<File | null>(null);
   const [eventType, setEventType] = useState(predefinedEventType);
   const [selectedType, setSelectedType] = useState("");
+  const [showRangeForm, setShowRangeForm] = useState(false);
+  
+
+  const [occurrences, setOccurrences] = useState<Occurrence[]>([]);
+  const [showAllDays, setShowAllDays] = useState(false);
+
   const [urls, setUrls] = useState<{
     url: string;
     thumbnailUrl: string | null;
@@ -73,18 +81,77 @@ export default function EventForm() {
 
   // Watch form values
   const watchTitle = watch("title");
-  const watchStartDate = watch("startDate");
-  const watchEndDate = watch("endDate");
   const watchDescription = watch("description");
   const watchType = watch("type");
 
   // Check form validity: Title, Start/End Date, Type, and EITHER Description OR Flyer
+  const hasAtLeastOneDate = occurrences.some((occ) => occ.date.trim() !== "");
   const isFormValid =
     watchTitle &&
-    watchStartDate &&
-    watchEndDate &&
     watchType &&
+    hasAtLeastOneDate &&
     (watchDescription || file);
+
+    function addSingleDay() {
+      setOccurrences((prev) => [...prev, { date: "", startTime: "", endTime: "" }]);
+    }
+    function removeOccurrence(index: number) {
+      setOccurrences((prev) => prev.filter((_, i) => i !== index));
+    }
+    function handleOccurrenceChange(index: number, field: keyof Occurrence, value: string) {
+      setOccurrences((prev) =>
+        prev.map((occ, i) => (i === index ? { ...occ, [field]: value } : occ))
+      );
+    }
+
+    // Store user inputs for the "range" form (start date, end date, etc.)
+  const [rangeStartDate, setRangeStartDate] = useState("");
+  const [rangeEndDate, setRangeEndDate] = useState("");
+  const [rangeStartTime, setRangeStartTime] = useState("");
+  const [rangeEndTime, setRangeEndTime] = useState("");
+
+  function addRangeOccurrence() {
+    if (!rangeStartDate || !rangeEndDate) return;
+  
+    // Force local midday, so we don't shift to the previous day in negative time zones
+    const start = new Date(`${rangeStartDate}T12:00:00`);
+    const end = new Date(`${rangeEndDate}T12:00:00`);
+  
+    if (start > end) {
+      alert("Start date cannot be after end date.");
+      return;
+    }
+  
+    const occurrencesToAdd: Occurrence[] = [];
+    let current = new Date(start);
+  
+    while (current <= end) {
+      const yyyy = current.getFullYear();
+      const mm = String(current.getMonth() + 1).padStart(2, "0");
+      const dd = String(current.getDate()).padStart(2, "0");
+  
+      occurrencesToAdd.push({
+        date: `${yyyy}-${mm}-${dd}`,
+        startTime: rangeStartTime,
+        endTime: rangeEndTime,
+      });
+  
+      // Move to the next day
+      current.setDate(current.getDate() + 1);
+    }
+  
+    setOccurrences((prev) => [...prev, ...occurrencesToAdd]);
+  
+    // Clear out the range fields if you like
+    setRangeStartDate("");
+    setRangeEndDate("");
+    setRangeStartTime("");
+    setRangeEndTime("");
+    setShowRangeForm(false);
+  }
+  
+
+
 
   const handleTypeChange = (type: string) => {
     if (!type.trim()) return; // Prevent empty inputs
@@ -123,27 +190,35 @@ export default function EventForm() {
         flyerUrl = uploadResponse.url; // Store uploaded image URL
       }
 
-      // Format startTime and endTime to include AM/PM information
-      const formattedStartTime = startTime
-        ? `${startTime.hour % 12 || 12}:${startTime.minute
-            .toString()
-            .padStart(2, "0")} ${startTime.hour >= 12 ? "PM" : "AM"}`
-        : null;
+      // Build array of eventOccurrences to send to API
+      const eventOccurrences = occurrences
+      .filter((occ) => occ.date.trim())
+      .map((occ) => {
+        // Convert user’s "YYYY-MM-DD" to local date at noon
+        const [yearStr, monthStr, dayStr] = occ.date.split("-");
+        const year = Number(yearStr);
+        const month = Number(monthStr) - 1; // 0-based
+        const day = Number(dayStr);
+    
+        // Construct a date at local “noon”
+        const dateObj = new Date(Date.UTC(year, month, day));
+    
+        return {
+          date: dateObj.toISOString(),
+          startTime: occ.startTime,
+          endTime: occ.endTime,
+        };
+      });
 
-      const formattedEndTime = endTime
-        ? `${endTime.hour % 12 || 12}:${endTime.minute
-            .toString()
-            .padStart(2, "0")} ${endTime.hour >= 12 ? "PM" : "AM"}`
-        : null;
-
-      const fullData = {
-        ...data,
-        startTime: formattedStartTime,
-        endTime: formattedEndTime,
-        flyer: flyerUrl,
-        type: selectedType.toLowerCase(), // Add selected event type
-        address: data.address,
-      };
+        const fullData = {
+          title: data.title,
+          description: data.description,
+          type: selectedType.toLowerCase(),
+          website: data.website,
+          address: data.address, 
+          flyer: flyerUrl,
+          eventOccurrences,
+        };
 
       const response = await fetch("/api/Event/create", {
         method: "POST",
@@ -159,7 +234,7 @@ export default function EventForm() {
         //redirect after some time
         setTimeout(() => {
           window.location.href = "/Event/create";
-        }, 3000);
+        }, 2000);
       } else {
         const errorResponse = await response.json();
         setMessage({
@@ -193,8 +268,8 @@ export default function EventForm() {
   });
 
   return (
-    <div className="w-full min-h-screen bg-gray-50 flex items-center justify-center pt-64 pb-8 px-4">
-      <Card className="w-full max-w-lg mx-auto shadow-sm bg-white border border-gray-300">
+    <div className="w-full min-h-screen bg-gray-50 flex items-center justify-center pt-20 pb-8 px-4">
+      <Card className="w-full max-w-lg mx-auto shadow-sm bg-white border border-gray-300 overflow-auto">
         <CardHeader className="flex flex-col items-center justify-center">
           <h3 className="text-3xl font-semibold">Create New Event</h3>
         </CardHeader>
@@ -222,50 +297,136 @@ export default function EventForm() {
                 errorMessage={errors.title?.message}
               />
 
-              <div className="flex gap-4">
-                <Input
-                  isRequired
-                  type="date"
-                  label="Start Date"
-                  aria-label="Start Date"
-                  variant="bordered"
-                  {...register("startDate", {
-                    required: "Start date is required",
-                  })}
-                  errorMessage={errors.startDate?.message}
-                />
-                <Input
-                  isRequired
-                  type="date"
-                  label="End Date"
-                  aria-label="End Date"
-                  variant="bordered"
-                  {...register("endDate", { required: "End date is required" })}
-                  errorMessage={errors.endDate?.message}
-                />
+{/* Occurrences Section */}
+<div>
+              {/* Only show the date/time list if there are occurrences */}
+              {occurrences.length > 0 && (
+                <div>
+                  <p className="font-medium mb-2">Selected Dates/Times:</p>
+
+                  {/* 
+                    Wrap the occurrences in a container that is scrollable 
+                    unless showAllDays is true, which removes the max height.
+                  */}
+                  <div
+                    className={`${
+                      showAllDays ? "" : "max-h-64 overflow-y-auto"
+                    } border rounded p-2`}
+                  >
+                    {occurrences.map((occ, idx) => (
+                      <div key={idx} className="border p-3 mb-2 rounded">
+                        <div className="flex gap-3">
+                          <Input
+                            label="Date"
+                            type="date"
+                            value={occ.date}
+                            onChange={(e) =>
+                              handleOccurrenceChange(idx, "date", e.target.value)
+                            }
+                          />
+                          <Input
+                            label="Start"
+                            type="time"
+                            value={occ.startTime}
+                            onChange={(e) =>
+                              handleOccurrenceChange(idx, "startTime", e.target.value)
+                            }
+                          />
+                          <Input
+                            label="End"
+                            type="time"
+                            value={occ.endTime}
+                            onChange={(e) =>
+                              handleOccurrenceChange(idx, "endTime", e.target.value)
+                            }
+                          />
+                        </div>
+                        {occurrences.length > 1 && (
+                          <Button
+                            type="button"
+                            color="danger"
+                            onPress={() => removeOccurrence(idx)}
+                            className="mt-2"
+                          >
+                            Remove
+                          </Button>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+
+                  {/* Toggle Button to expand/collapse the container */}
+                  <Button
+                    onPress={() => setShowAllDays(!showAllDays)}
+                    className="mt-2"
+                    type="button"
+                  >
+                    {showAllDays ? "Show Less" : "View All Days"}
+                  </Button>
+                </div>
+              )}
+
+              <div className="mt-4 flex gap-2">
+                {/* Button to add a single day */}
+                <Button type="button" onPress={addSingleDay}>
+                  + Add Single Day
+                </Button>
+                {/* Button to show/hide the range form */}
+                {!showRangeForm && (
+                  <Button type="button" onPress={() => setShowRangeForm(true)}>
+                    + Add Range
+                  </Button>
+                )}
               </div>
 
-              <div className="flex gap-4">
-                <TimeInput
-                  label="Event Start Time"
-                  aria-label="Event Start Time"
-                  value={startTime}
-                  variant="bordered"
-                  onChange={(newValue) => setStartTime(newValue)}
-                  errorMessage={errors.startTime?.message}
-                />
-                <TimeInput
-                  label="Event End Time"
-                  aria-label="Event End Time"
-                  value={endTime}
-                  variant="bordered"
-                  onChange={(newValue) => setEndTime(newValue)}
-                  errorMessage={errors.endTime?.message}
-                />
-              </div>
+              {/* Range Form, only visible if showRangeForm is true */}
+              {showRangeForm && (
+                <div className="mt-4 p-3 border rounded">
+                  <p className="font-semibold mb-2">Add a Range of Days</p>
+                  <div className="flex flex-wrap gap-3 mb-2">
+                    <Input
+                      label="Start Date"
+                      type="date"
+                      value={rangeStartDate}
+                      onChange={(e) => setRangeStartDate(e.target.value)}
+                    />
+                    <Input
+                      label="End Date"
+                      type="date"
+                      value={rangeEndDate}
+                      onChange={(e) => setRangeEndDate(e.target.value)}
+                    />
+                    <Input
+                      label="Start Time"
+                      type="time"
+                      value={rangeStartTime}
+                      onChange={(e) => setRangeStartTime(e.target.value)}
+                    />
+                    <Input
+                      label="End Time"
+                      type="time"
+                      value={rangeEndTime}
+                      onChange={(e) => setRangeEndTime(e.target.value)}
+                    />
+                  </div>
+                  <div className="flex gap-2">
+                    <Button type="button" onPress={addRangeOccurrence}>
+                      Add This Range
+                    </Button>
+                    <Button
+                      type="button"
+                      color="danger"
+                      onPress={() => setShowRangeForm(false)}
+                    >
+                      Cancel
+                    </Button>
+                  </div>
+                </div>
+              )}
+            </div>
 
-              <div className="flex flex-wrap gap-4">
                 {/* Description */}
+              <div className="flex flex-wrap gap-4">
                 <div className="flex-1">
                   <Textarea
                     minRows={8}

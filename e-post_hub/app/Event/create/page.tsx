@@ -42,7 +42,7 @@ export default function CreateEventPage() {
   return (
     <EdgeStoreProvider>
       <div
-        className="flex items-center justify-center"
+        className=""
         style={{ height: "calc(100vh - 64px)" }}
       >
         {statusMessage && (

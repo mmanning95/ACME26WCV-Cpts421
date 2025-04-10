@@ -8,15 +8,26 @@ export async function DELETE() {
   const oneMonthAgo = subMonths(new Date(), 1);
 
   try {
+    // 1) Find events that have occurrences all older than oneMonthAgo
+    //    i.e. every occurrence date < oneMonthAgo
     const expiredEvents = await prisma.event.findMany({
       where: {
-        endDate: {
-          lt: oneMonthAgo.toISOString(),
+        occurrences: {
+          every: {
+            date: {
+              lt: oneMonthAgo,
+            },
+          },
         },
+      },
+      include: {
+        occurrences: true,
       },
     });
 
+    // 2) For each expired event, do the cleanup steps
     for (const event of expiredEvents) {
+      // 2a) Delete flyer from EdgeStore if present
       if (event.flyer) {
         try {
           const res = await fetch("https://api.edgestore.dev/api/file", {
@@ -36,14 +47,25 @@ export async function DELETE() {
             console.log("Deleted flyer from EdgeStore:", event.flyer);
           }
         } catch (err) {
-          console.error("Failed to delete flyer from EdgeStore:", event.flyer, err);
+          console.error(
+            "Failed to delete flyer from EdgeStore:",
+            event.flyer,
+            err
+          );
         }
       }
 
+      // 2b) Delete event occurrences
+      await prisma.eventOccurrence.deleteMany({
+        where: { eventId: event.id },
+      });
+
+      // 2c) Delete all comments for this event
       await prisma.comment.deleteMany({
         where: { eventId: event.id },
       });
 
+      // 2d) Finally, delete the event
       await prisma.event.delete({
         where: { id: event.id },
       });

@@ -19,6 +19,14 @@ const PdfViewer = dynamic(() => import("../Components/PdfViewer/PdfViewer"), {
   ssr: false,
 });
 
+type EventOccurrence = {
+  id: string;
+  eventId: string;
+  date: string;
+  startTime?: string;
+  endTime?: string;
+};
+
 type Event = {
   id: string;
   title: string;
@@ -40,6 +48,7 @@ type Event = {
   longitude: number;
   distance: number;
   address?: string;
+  occurrences?: EventOccurrence[];
 };
 
 export default function Adminpage() {
@@ -202,87 +211,100 @@ export default function Adminpage() {
         router.replace("/Unauthorized");
       }    }
 
-    async function fetchEvents() {
-      try {
-        const response = await fetch("/api/Event/approved");
-
-        if (!response.ok) {
-          console.error("Failed to fetch approved events:", response.statusText);
-          return;
-
+      async function fetchEvents() {
+        try {
+          const response = await fetch("/api/Event/approved");
+          if (!response.ok) {
+            console.error("Failed to fetch approved events:", response.statusText);
+            return;
+          }
+      
+          const data = await response.json();
+          const allEvents = data.events as Event[];
+      
+          // ******** 1) Compute startDate / endDate from occurrences
+          // Check if each event has .occurrences. If so, figure out earliest & latest
+          allEvents.forEach((ev) => {
+            if (ev.occurrences && ev.occurrences.length > 0) {
+              // Sort them by date ascending
+              ev.occurrences.sort(
+                (a, b) => new Date(a.date).getTime() - new Date(b.date).getTime()
+              );
+              const earliest = ev.occurrences[0].date; 
+              const latest = ev.occurrences[ev.occurrences.length - 1].date;
+      
+              // “YYYY-MM-DD”
+              ev.startDate = earliest.split("T")[0];
+              ev.endDate = latest.split("T")[0];
+            } else {
+              // No occurrences => no range
+              ev.startDate = undefined;
+              ev.endDate = undefined;
+            }
+          });
+      
+          // 2) Sort events by start date
+          allEvents.sort((a, b) => {
+            const dateA = a.startDate ? new Date(a.startDate).getTime() : Infinity;
+            const dateB = b.startDate ? new Date(b.startDate).getTime() : Infinity;
+            return dateA - dateB;
+          });
+      
+          // 3) Build an upcoming only subset
+          const now = new Date();
+          const upcoming = allEvents.filter((event) => {
+            const endDate = event.endDate ? new Date(event.endDate) : null;
+            const startDate = event.startDate ? new Date(event.startDate) : null;
+      
+            if (endDate && endDate < now) return false;
+            if (!endDate && startDate && startDate < now) return false;
+            return true;
+          });
+      
+          // 4) Keep full array for older items if needed
+          setEvents(allEvents);
+      
+          // 5) defaultEvents = upcoming only
+          setDefaultEvents(upcoming);
+      
+          // 6) By default, show upcoming
+          setFilteredEvents(upcoming);
+          setIsFiltering(false);
+      
+          // Build unique event types
+          const uniqueTypes: string[] = Array.from(
+            new Set<string>(allEvents.map((ev) => ev.type || "").filter(Boolean))
+          );
+          setEventTypes(uniqueTypes);
+      
+        } catch (error) {
+          console.error("Error fetching approved events:", error);
         }
-
-        const data = await response.json();
-        const allEvents = data.events as Event[];
-
-        // 1) Sort events by start date
-        allEvents.sort((a, b) => {
-          const dateA = a.startDate ? new Date(a.startDate).getTime() : Infinity;
-          const dateB = b.startDate ? new Date(b.startDate).getTime() : Infinity;
-          return dateA - dateB;
-        });
-
-        // 2) Build an upcoming only subset
-        const now = new Date();
-        const upcoming = allEvents.filter((event) => {
-          const endDate = event.endDate ? new Date(event.endDate) : null;
-          const startDate = event.startDate ? new Date(event.startDate) : null;
-
-          // If there's an endDate and it's already passed, exclude
-          if (endDate && endDate < now) return false;
-
-          // If no endDate but the startDate is in the past, exclude
-          if (!endDate && startDate && startDate < now) return false;
-
-          return true;
-        });
-
-        // 3) Keep the full array so you can still display older items if needed
-        setEvents(allEvents);
-
-        // 4) 'defaultEvents' = upcoming only
-        setDefaultEvents(upcoming);
-
-        // 5) By default, show upcoming events
-        setFilteredEvents(upcoming);
-
-        // 6) Not in a “filtered” state yet
-        setIsFiltering(false);
-
-        // Build your unique event types
-        const uniqueTypes: string[] = Array.from(
-          new Set<string>(allEvents.map((ev) => ev.type || "").filter(Boolean))
-        );
-        setEventTypes(uniqueTypes);
-
-      } catch (error) {
-        console.error("Error fetching approved events:", error);
       }
-    }
+      
 
     fetchEvents();
   }, []);
 
 
   const handleDateClick = (dateString: string) => {
-    setIsFiltering(true); // user clicked a specific date => filtered
-
-    // Convert string => Date
-    const clickedDate = new Date(dateString);
-
-    const eventsForDate = events.filter((ev) => {
-      if (!ev.startDate || !ev.endDate) return false;
-      const start = new Date(ev.startDate);
-      const end = new Date(ev.endDate);
-
-      // Subtract one day from both
-      start.setDate(start.getDate() - 1);
-      end.setDate(end.getDate() - 1);
-
-      return clickedDate >= start && clickedDate <= end;
+    setIsFiltering(true);
+  
+    // Instead of new Date, just do a direct string compare
+    const filtered = events.filter((ev) => {
+      if (!ev.startDate) return false;
+      const start = ev.startDate; // e.g. "2025-08-10"
+      const end = ev.endDate || start;
+      // If dateString is "2025-08-10", 
+      // we check if it's between start & end (all strings).
+      return dateString >= start && dateString <= end;
     });
-    setFilteredEvents(eventsForDate);
+  
+    setFilteredEvents(filtered);
+    console.log("Events in state:", events);
   };
+  
+
 
   const handleTypeFilter = (keys: Set<string>) => {
     setIsFiltering(true);
@@ -529,28 +551,28 @@ export default function Adminpage() {
                         </CardHeader>
                         <CardBody className="flex flex-col justify-between p-6">
                         {isPdfUrl(event.flyer) ? (
-  <a
-  href={event.flyer}
-  target="_blank"
-  rel="noopener noreferrer"
-  style={{ display: "block", position: "relative" }}
->
-  <PdfViewer fileUrl={event.flyer} containerHeight={400} />
-</a>) : (
-  // If it’s not a PDF, fall back to the image:
-  <a
-    href={event.flyer}
-    target="_blank"
-    rel="noopener noreferrer"
-  >
-    <img
-      src={event.flyer}
-      alt={`${event.title} Flyer`}
-      style={{ maxHeight: "400px" }}
-      className="w-full h-full object-cover rounded-md"
-    />
-  </a>
-)}
+                          <a
+                          href={event.flyer}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          style={{ display: "block", position: "relative" }}
+                        >
+                          <PdfViewer fileUrl={event.flyer} containerHeight={400} />
+                        </a>) : (
+                          // If it’s not a PDF, fall back to the image:
+                          <a
+                            href={event.flyer}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                          >
+                            <img
+                              src={event.flyer}
+                              alt={`${event.title} Flyer`}
+                              style={{ maxHeight: "400px" }}
+                              className="w-full h-full object-cover rounded-md"
+                            />
+                          </a>
+                        )}
                           <div className="flex flex-col gap-2 mt-4 justify-center items-center">
                             {/* Top Row: Interested and Delete Event */}
                             <div className="flex gap-2">

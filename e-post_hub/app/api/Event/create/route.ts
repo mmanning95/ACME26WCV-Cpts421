@@ -26,7 +26,7 @@ export async function POST(req: NextRequest) {
       }
     }   
 
-    const { website, title, startDate, endDate, description, startTime, endTime, flyer, type, address, latitude, longitude } = await req.json();
+    const { website, title, description, flyer, type, address, latitude, longitude, eventOccurrences } = await req.json();
 
     // Fetch latitude and longitude from Google Maps API if an address is provided
     let resolvedLatitude = latitude;
@@ -72,11 +72,7 @@ export async function POST(req: NextRequest) {
         createdById: userId || undefined,
         website,
         title,
-        startDate: startDate ? new Date(startDate + 'T00:00:00') : null,
-        endDate: endDate ? new Date(endDate + 'T23:59:59') : null,
         description,
-        startTime,
-        endTime,
         flyer,
         type,
         address,
@@ -86,10 +82,33 @@ export async function POST(req: NextRequest) {
       },
     });
 
-    return NextResponse.json({ message: 'Event created successfully', event: newEvent }, { status: 201 });
+  // 2) Create the occurrences
+    // If the user provided an array of date/time objects, store them
+    if (Array.isArray(eventOccurrences)) {
+      // We loop and create each day/time
+      for (const occ of eventOccurrences) {
+        // parse the "date" string we sent from the front end
+        // e.g. "2025-04-10T00:00:00.000Z"
+        const dateObj = new Date(occ.date);
+
+        await prisma.eventOccurrence.create({
+          data: {
+            eventId: newEvent.id,
+            date: dateObj,
+            startTime: occ.startTime || null,
+            endTime: occ.endTime || null,
+          },
+        });
+      }
+    }
+
+    return NextResponse.json(
+      { message: "Event created successfully", event: newEvent },
+      { status: 201 }
+    );
   } catch (error) {
-    console.error('Error creating event:', error);
-    return NextResponse.json({ message: 'Internal Server Error' }, { status: 500 });
+    console.error("Error creating event:", error);
+    return NextResponse.json({ message: "Internal Server Error" }, { status: 500 });
   } finally {
     await prisma.$disconnect();
   }

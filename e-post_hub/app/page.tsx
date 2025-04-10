@@ -16,6 +16,15 @@ import {
 } from "@nextui-org/react";
 import PdfViewer from "./Components/PdfViewer/PdfViewer";
 
+
+type EventOccurrence = {
+  id: string;
+  eventId: string;
+  date: string;
+  startTime?: string;
+  endTime?: string;
+};
+
 type Event = {
   id: string;
   title: string;
@@ -37,6 +46,8 @@ type Event = {
   longitude: number;
   distance: number;
   address?: string;
+  occurrences?: EventOccurrence[];
+
 };
 
 export default function HomePage() {
@@ -84,6 +95,24 @@ export default function HomePage() {
 
         const data = await response.json();
         const allEvents = data.events as Event[];
+
+        allEvents.forEach((ev) => {
+          if (ev.occurrences && ev.occurrences.length > 0) {
+            // Sort them by date ascending
+            ev.occurrences.sort(
+              (a, b) => new Date(a.date).getTime() - new Date(b.date).getTime()
+            );
+            const earliest = ev.occurrences[0].date;
+            const latest = ev.occurrences[ev.occurrences.length - 1].date;
+            // Convert "2025-08-10T00:00:00.000Z" => "2025-08-10"
+            ev.startDate = earliest.split("T")[0];
+            ev.endDate = latest.split("T")[0];
+          } else {
+            // If no occurrences, or none returned, we have no date range
+            ev.startDate = undefined;
+            ev.endDate = undefined;
+          }
+        });
 
         // 1) Sort events by start date
         allEvents.sort((a, b) => {
@@ -285,10 +314,6 @@ export default function HomePage() {
       if (!ev.startDate || !ev.endDate) return false;
       const start = new Date(ev.startDate);
       const end = new Date(ev.endDate);
-
-      // Subtract one day from both
-      start.setDate(start.getDate() - 1);
-      end.setDate(end.getDate() - 1);
 
       return clickedDate >= start && clickedDate <= end;
     });

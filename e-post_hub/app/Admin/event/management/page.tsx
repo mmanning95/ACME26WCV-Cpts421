@@ -9,8 +9,26 @@ import {
   Checkbox,
 } from "@nextui-org/react";
 import jwt from "jsonwebtoken";
-import { Router } from "lucide-react";
 import { useRouter } from "next/navigation";
+import dynamic from "next/dynamic";
+
+// Dynamically import your PdfViewer if needed
+const PdfViewer = dynamic(() => import("@/app/Components/PdfViewer/PdfViewer"), {
+  ssr: false,
+});
+
+// Helper to detect PDFs
+function isPdfUrl(url?: string | null) {
+  if (!url) return false;
+  return url.toLowerCase().endsWith(".pdf");
+}
+
+type EventOccurrence = {
+  id: string;
+  date: string;        // e.g. "2025-08-10T00:00:00.000Z"
+  startTime?: string;
+  endTime?: string;
+};
 
 type Event = {
   id: string;
@@ -20,13 +38,15 @@ type Event = {
     name: string;
     email: string;
   };
-  status: string;
   startDate?: string;
   endDate?: string;
   startTime?: string;
   endTime?: string;
   website?: string;
-  flyer?: string;
+  flyer?: string; // PDF or image
+  type?: string;
+  address?: string;
+  occurrences?: EventOccurrence[]; // <--- including occurrences here
 };
 
 type Question = {
@@ -41,25 +61,29 @@ type Question = {
 export default function EventManagement() {
   const router = useRouter();
 
+  // States
   const [events, setEvents] = useState<Event[]>([]);
   const [questions, setQuestions] = useState<Question[]>([]);
   const [isAdmin, setIsAdmin] = useState(false);
+
+  // Approve / Deny checkboxes
   const [selectedActions, setSelectedActions] = useState<{
     [key: string]: "approve" | "deny" | null;
   }>({});
-  const [globalStatusMessage, setGlobalStatusMessage] = useState<string | null>(
-    null
-  );
+  // Rejection messages
   const [denyMessages, setDenyMessages] = useState<{ [key: string]: string }>(
     {}
+  );
+  // Global status
+  const [globalStatusMessage, setGlobalStatusMessage] = useState<string | null>(
+    null
   );
 
   useEffect(() => {
     const token = localStorage.getItem("token");
-
     if (token) {
       const decodedToken = jwt.decode(token) as { role?: string };
-      if (!decodedToken || decodedToken?.role !== "ADMIN") {
+      if (!decodedToken || decodedToken.role !== "ADMIN") {
         setTimeout(() => router.replace("/Unauthorized"), 0);
       } else {
         setIsAdmin(true);
@@ -70,9 +94,9 @@ export default function EventManagement() {
   }, [router]);
 
   useEffect(() => {
-    // Fetch pending events and private questions
     async function fetchPendingEventsAndQuestions() {
       try {
+        // We expect that /api/Event/pending includes event.occurrences
         const [eventsResponse, questionsResponse] = await Promise.all([
           fetch("/api/Event/pending"),
           fetch("/api/community/question/private"),
@@ -82,13 +106,12 @@ export default function EventManagement() {
           const eventsData = await eventsResponse.json();
           setEvents(eventsData.events);
 
-          // Initialize selectedActions state for events
-          const initialActions: { [key: string]: "approve" | "deny" | null } =
-            {};
-          eventsData.events.forEach((event: Event) => {
-            initialActions[event.id] = null;
+          // Initialize checkboxes (Approve/Deny)
+          const initial: { [key: string]: "approve" | "deny" | null } = {};
+          eventsData.events.forEach((ev: Event) => {
+            initial[ev.id] = null;
           });
-          setSelectedActions(initialActions);
+          setSelectedActions(initial);
         } else {
           setGlobalStatusMessage("Failed to fetch pending events.");
         }
@@ -110,29 +133,29 @@ export default function EventManagement() {
     }
   }, [isAdmin]);
 
-  // Define handleCheckboxChange function for events
-  const handleCheckboxChange = (itemId: string, action: "approve" | "deny") => {
+  // ============ Approve/Deny =============
+  const handleCheckboxChange = (eventId: string, action: "approve" | "deny") => {
     setSelectedActions((prev) => ({
       ...prev,
-      [itemId]: prev[itemId] === action ? null : action,
+      [eventId]: prev[eventId] === action ? null : action,
     }));
 
-    // Initialize the deny message
+    // If user checks "deny," ensure we track a text reason
     if (action === "deny") {
       setDenyMessages((prev) => ({
         ...prev,
-        [itemId]: prev[itemId] || "", // Keep existing input
+        [eventId]: prev[eventId] || "",
       }));
     } else {
+      // If we uncheck "deny," remove any stored message
       setDenyMessages((prev) => {
-        const newMessages = { ...prev };
-        delete newMessages[itemId]; // Remove message when unchecking deny
-        return newMessages;
+        const next = { ...prev };
+        delete next[eventId];
+        return next;
       });
     }
   };
 
-  // Submit all actions for events
   const handleSubmitActions = async () => {
     let allSuccess = true;
     for (const [eventId, action] of Object.entries(selectedActions)) {
@@ -143,6 +166,7 @@ export default function EventManagement() {
         const success = await handleDenyEvent(eventId);
         if (!success) allSuccess = false;
       }
+      // if null => do nothing
     }
 
     setGlobalStatusMessage(
@@ -152,7 +176,6 @@ export default function EventManagement() {
     );
   };
 
-  // Approve event
   const handleApproveEvent = async (eventId: string) => {
     try {
       const response = await fetch(`/api/Event/approve/${eventId}`, {
@@ -163,9 +186,8 @@ export default function EventManagement() {
       });
 
       if (response.ok) {
-        setEvents((prevEvents) =>
-          prevEvents.filter((event) => event.id !== eventId)
-        );
+        // remove from local list
+        setEvents((prev) => prev.filter((ev) => ev.id !== eventId));
         return true;
       } else {
         const errorData = await response.json();
@@ -178,10 +200,9 @@ export default function EventManagement() {
     }
   };
 
-  // Deny event
   const handleDenyEvent = async (eventId: string) => {
-    const message = denyMessages[eventId]?.trim();
-    if (!message) {
+    const msg = denyMessages[eventId]?.trim();
+    if (!msg) {
       setGlobalStatusMessage("Rejection message is required.");
       return false;
     }
@@ -193,13 +214,11 @@ export default function EventManagement() {
           "Content-Type": "application/json",
           Authorization: `Bearer ${localStorage.getItem("token")}`,
         },
-        body: JSON.stringify({ denyMessage: message }),
+        body: JSON.stringify({ denyMessage: msg }),
       });
 
       if (response.ok) {
-        setEvents((prevEvents) =>
-          prevEvents.filter((event) => event.id !== eventId)
-        );
+        setEvents((prev) => prev.filter((ev) => ev.id !== eventId));
         return true;
       } else {
         const errorData = await response.json();
@@ -212,7 +231,7 @@ export default function EventManagement() {
     }
   };
 
-  // Resolve (delete) question
+  // ============ Private Questions ============
   const handleResolveQuestion = async (questionId: string) => {
     try {
       const response = await fetch(`/api/community/question/${questionId}`, {
@@ -223,13 +242,11 @@ export default function EventManagement() {
       });
 
       if (response.ok) {
-        setQuestions((prevQuestions) =>
-          prevQuestions.filter((question) => question.id !== questionId)
-        );
+        setQuestions((prev) => prev.filter((q) => q.id !== questionId));
         setGlobalStatusMessage("Question resolved successfully.");
       } else {
-        const errorData = await response.json();
-        console.error("Error resolving question:", errorData);
+        const errData = await response.json();
+        console.error("Error resolving question:", errData);
         setGlobalStatusMessage("Failed to resolve question.");
       }
     } catch (error) {
@@ -238,144 +255,247 @@ export default function EventManagement() {
     }
   };
 
-  // if (!isAdmin) {
-  //   return <div>Loading...</div>;
-  // }
+  // if (!isAdmin) { return <div>Loading...</div>; }
 
   return (
-    <div className="w-4/5 mx-auto">
-      {/* Global Status Message */}
+    <div className="w-full min-h-screen bg-gray-50 py-8 px-4 flex flex-col gap-8">
+      {/* Global status message if any */}
       {globalStatusMessage && (
-        <div className="text-center mb-4 p-2 bg-blue-100 text-blue-800 border border-blue-300 rounded">
+        <div className="mx-auto max-w-3xl mb-4 p-2 bg-blue-100 text-blue-800 border border-blue-300 rounded">
           {globalStatusMessage}
         </div>
       )}
 
-      <div className="flex gap-8">
-        {/* Left side: Events */}
-        <div className="w-1/2">
-          <Card>
-            <CardHeader className="flex flex-col items-center justify-center">
-              <h3 className="text-2xl font-semibold">Pending Events</h3>
-            </CardHeader>
-            <CardBody className="max-h-[600px] overflow-y-auto">
-              {events.length === 0 ? (
-                <p className="text-center">No pending events at the moment.</p>
-              ) : (
-                events.map((event) => (
-                  <div key={event.id} className="mb-4 p-4 border-b">
-                    <h4 className="text-xl font-bold">{event.title}</h4>
-                    <p className="text-gray-600">{event.description}</p>
-                    {event.createdBy ? (
-                      <p className="text-gray-600">
-                        Created By: {event.createdBy.name} (
-                        {event.createdBy.email})
-                      </p>
-                    ) : (
-                      <p className="text-gray-600 italic">
-                        Created By: Guest User
-                      </p>
-                    )}
-                    {event.startDate && (
-                      <p className="text-gray-600">
-                        Start Date:{" "}
-                        {new Date(event.startDate).toLocaleDateString()}
-                      </p>
-                    )}
-                    <div className="flex justify-between mt-2">
-                      <Checkbox
-                        isSelected={selectedActions[event.id] === "approve"}
-                        onChange={() =>
-                          handleCheckboxChange(event.id, "approve")
-                        }
-                        color="primary"
-                      >
-                        Approve
-                      </Checkbox>
-                      <Checkbox
-                        isSelected={selectedActions[event.id] === "deny"}
-                        onChange={() => handleCheckboxChange(event.id, "deny")}
-                        color="danger"
-                      >
-                        Deny
-                      </Checkbox>
-                    </div>
-
-                    {/* Prompt user for rejection message */}
-                    {selectedActions[event.id] === "deny" && (
-                      <textarea
-                        value={denyMessages[event.id] || ""}
-                        onChange={(e) =>
-                          setDenyMessages((prev) => ({
-                            ...prev,
-                            [event.id]: e.target.value,
-                          }))
-                        }
-                        placeholder="Please enter a reason for rejection..."
-                        className="w-full p-2 border border-gray-300 rounded mt-2"
-                      />
-                    )}
-                  </div>
-                ))
-              )}
+      {/* Pending Events Section */}
+      <div className="mx-auto w-full max-w-3xl">
+        <h2 className="text-3xl font-bold mb-4 text-center">Pending Events</h2>
+        {events.length === 0 ? (
+          <Card className="mb-4">
+            <CardBody>
+              <p className="text-center">No pending events at the moment.</p>
             </CardBody>
-            {events.length > 0 && (
-              <div className="flex justify-center mt-8">
-                <Button
-                  onClick={handleSubmitActions}
-                  className="bg-gradient-to-r from-[#f7960d] to-[#f95d09] text-white"
-                >
-                  Submit Actions
-                </Button>
-              </div>
-            )}
           </Card>
-        </div>
+        ) : (
+          <>
+            {events.map((event) => (
+              <Card
+                key={event.id}
+                className="w-full max-w-3xl mb-6 bg-white border border-gray-300 shadow-sm"
+              >
+                <CardHeader className="flex flex-col items-center justify-center">
+                  <h3 className="text-xl font-semibold">{event.title}</h3>
+                </CardHeader>
+                <CardBody>
+                  {/* Flyer (PDF or Image) */}
+                  {event.flyer && (
+                    <div className="mb-4">
+                      {isPdfUrl(event.flyer) ? (
+                        <a
+                          href={event.flyer}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          style={{ display: "block", position: "relative" }}
+                        >
+                          <PdfViewer fileUrl={event.flyer} containerHeight={400} />
+                        </a>
+                      ) : (
+                        <a
+                          href={event.flyer}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                        >
+                          <img
+                            src={event.flyer}
+                            alt={`${event.title} Flyer`}
+                            style={{ maxHeight: "400px" }}
+                            className="w-full h-full object-cover rounded-md"
+                          />
+                        </a>
+                      )}
+                    </div>
+                  )}
 
-        {/* Right side: Private Questions */}
-        <div className="w-1/2">
-          <Card>
-            <CardHeader className="flex flex-col items-center justify-center">
-              <h3 className="text-2xl font-semibold">Private Questions</h3>
-              <div className="text-[#757575]" style={{ fontSize: "12px" }}>
-                Note: Once an email is sent to user, please resolve the
-                question. Resolved questions cannot be retrived.
-              </div>
-            </CardHeader>
-            <CardBody className="max-h-[600px] overflow-y-auto">
-              {questions.length === 0 ? (
-                <p className="text-center">
-                  No private questions at the moment.
+                  {/* Basic Info */}
+                  {event.type && (
+                    <p className="text-gray-600 mb-1">
+                      <strong>Type:</strong> {event.type}
+                    </p>
+                  )}
+                  {event.description && (
+                    <p className="text-gray-600 mb-2">{event.description}</p>
+                  )}
+                  {event.createdBy ? (
+                    <p className="text-gray-600 mb-1">
+                      <strong>Created By:</strong> {event.createdBy.name} (
+                      {event.createdBy.email})
+                    </p>
+                  ) : (
+                    <p className="text-gray-600 italic mb-1">
+                      <strong>Created By:</strong> Guest User
+                    </p>
+                  )}
+
+                  {/* Single date/time fields (if used) */}
+                  {event.startDate && (
+                    <p className="text-gray-600 mb-1">
+                      <strong>Start Date:</strong>{" "}
+                      {new Date(event.startDate).toLocaleDateString()}
+                    </p>
+                  )}
+                  {event.endDate && (
+                    <p className="text-gray-600 mb-1">
+                      <strong>End Date:</strong>{" "}
+                      {new Date(event.endDate).toLocaleDateString()}
+                    </p>
+                  )}
+                  {event.startTime && (
+                    <p className="text-gray-600 mb-1">
+                      <strong>Start Time:</strong> {event.startTime}
+                    </p>
+                  )}
+                  {event.endTime && (
+                    <p className="text-gray-600 mb-1">
+                      <strong>End Time:</strong> {event.endTime}
+                    </p>
+                  )}
+
+                  {/* Address / Website */}
+                  {event.address && (
+                    <p className="text-gray-600 mb-1">
+                      <strong>Address:</strong> {event.address}
+                    </p>
+                  )}
+                  {event.website && (
+                    <p className="text-gray-600 mb-1">
+                      <strong>Website:</strong>{" "}
+                      <a
+                        href={
+                          event.website.startsWith("http")
+                            ? event.website
+                            : `https://${event.website}`
+                        }
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="underline text-blue-500"
+                      >
+                        {event.website}
+                      </a>
+                    </p>
+                  )}
+
+                  {/* Occurrences if present */}
+                  {event.occurrences && event.occurrences.length > 0 && (
+                    <div className="mt-3 mb-2">
+                      <h4 className="font-semibold">Dates:</h4>
+                      {event.occurrences.map((occ) => {
+                        const dateObj = new Date(occ.date);
+                        const dateStr = dateObj.toLocaleDateString();
+                        return (
+                          <p key={occ.id} className="text-gray-600 ml-4">
+                            - {dateStr}
+                            {occ.startTime && `, Start: ${occ.startTime}`}
+                            {occ.endTime && `, End: ${occ.endTime}`}
+                          </p>
+                        );
+                      })}
+                    </div>
+                  )}
+
+                  {/* Approve / Deny */}
+                  <div className="flex justify-between mt-4 mb-2">
+                    <Checkbox
+                      isSelected={selectedActions[event.id] === "approve"}
+                      onChange={() =>
+                        handleCheckboxChange(event.id, "approve")
+                      }
+                      color="primary"
+                    >
+                      Approve
+                    </Checkbox>
+                    <Checkbox
+                      isSelected={selectedActions[event.id] === "deny"}
+                      onChange={() => handleCheckboxChange(event.id, "deny")}
+                      color="danger"
+                    >
+                      Deny
+                    </Checkbox>
+                  </div>
+
+                  {/* Deny Reason */}
+                  {selectedActions[event.id] === "deny" && (
+                    <textarea
+                      value={denyMessages[event.id] || ""}
+                      onChange={(e) =>
+                        setDenyMessages((prev) => ({
+                          ...prev,
+                          [event.id]: e.target.value,
+                        }))
+                      }
+                      placeholder="Please enter a reason for rejection..."
+                      className="w-full p-2 border border-gray-300 rounded mt-2"
+                    />
+                  )}
+                </CardBody>
+              </Card>
+            ))}
+
+            {/* Submit Actions Button if we have events */}
+            <div className="flex justify-center mt-4">
+              <Button
+                onClick={handleSubmitActions}
+                className="bg-gradient-to-r from-[#f7960d] to-[#f95d09] text-white border-black"
+              >
+                Submit Actions
+              </Button>
+            </div>
+          </>
+        )}
+      </div>
+
+      {/* Private Questions */}
+      <div className="mx-auto w-full max-w-3xl">
+        <h2 className="text-3xl font-bold mb-4 text-center">
+          Private Questions
+        </h2>
+        {questions.length === 0 ? (
+          <Card className="mb-4">
+            <CardBody>
+              <p className="text-center">No private questions at the moment.</p>
+            </CardBody>
+          </Card>
+        ) : (
+          questions.map((question) => (
+            <Card
+              key={question.id}
+              className="w-full max-w-3xl mb-6 bg-white border border-gray-300 shadow-sm"
+            >
+              <CardHeader className="flex flex-col items-center justify-center">
+                <h3 className="text-xl font-semibold">
+                  Question from {question.username}
+                </h3>
+              </CardHeader>
+              <CardBody>
+                <p className="text-gray-600 mb-1">{question.text}</p>
+                <p className="text-gray-600 mb-1">
+                  <strong>Contact:</strong> {question.userEmail}
                 </p>
-              ) : (
-                questions.map((question) => (
-                  <div key={question.id} className="mb-4 p-4 border-b">
-                    <h4 className="text-xl font-bold">
-                      Question from {question.username}
-                    </h4>
-                    <p className="text-gray-600">{question.text}</p>
-                    <p className="text-gray-600">
-                      User Email: {question.userEmail}
-                    </p>
-                    <p className="text-gray-600">
-                      Posted on:{" "}
-                      {new Date(question.datePosted).toLocaleDateString()}
-                    </p>
-                    <div className="flex justify-end mt-4">
-                      <Button
-                        onClick={() => handleResolveQuestion(question.id)}
-                        color="success"
-                        className="bg-blue-500 text-white"
-                      >
-                        Resolved
-                      </Button>
-                    </div>
-                  </div>
-                ))
-              )}
-            </CardBody>
-          </Card>
-        </div>
+                <p className="text-gray-600 mb-1">
+                  <strong>Posted on:</strong>{" "}
+                  {new Date(question.datePosted).toLocaleDateString()}
+                </p>
+                <div className="flex justify-end mt-4">
+                  <Button
+                    onClick={() => handleResolveQuestion(question.id)}
+                    color="success"
+                    className="bg-blue-500 text-white"
+                  >
+                    Resolve
+                  </Button>
+                </div>
+              </CardBody>
+            </Card>
+          ))
+        )}
       </div>
     </div>
   );

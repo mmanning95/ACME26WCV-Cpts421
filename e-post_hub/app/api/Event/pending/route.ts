@@ -12,6 +12,7 @@ export async function GET() {
         status: 'PENDING',
       },
       include: {
+        occurrences: true,
         createdBy: {
           select : {
             name: true,
